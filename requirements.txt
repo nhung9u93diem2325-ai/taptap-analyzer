@@ -1,5 +1,5 @@
 flask==3.0.3
 flask-cors==4.0.1
 openai==1.35.3
-playwright==1.44.0
+playwright==1.49.0
 gunicorn==22.0.0
