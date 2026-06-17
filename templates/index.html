@@ -42,6 +42,12 @@ header{padding:28px 48px;display:flex;align-items:center;gap:14px;border-bottom:
 .btn:disabled{opacity:.4;cursor:not-allowed;}
 
 .error-box{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:10px;padding:14px 18px;color:var(--bad);font-size:13px;margin-top:14px;display:none;}
+.appid-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;}
+.appid-hint{font-size:12px;color:var(--muted);white-space:nowrap;}
+.appid-input{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px;font-family:inherit;outline:none;width:150px;transition:border-color .2s;}
+.appid-input:focus{border-color:var(--accent);}
+.appid-help{font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap;}
+.appid-help:hover{text-decoration:underline;}
 
 /* Progress */
 .progress-wrap{max-width:580px;margin:28px auto 0;padding:0 24px;display:none;}
@@ -134,6 +140,11 @@ header{padding:28px 48px;display:flex;align-items:center;gap:14px;border-bottom:
     <input class="search-input" id="gameInput" type="text" placeholder="输入游戏名称，例如：原神、黑神话悟空" />
     <button class="btn" id="analyzeBtn" onclick="startAnalyze()">开始分析</button>
   </div>
+  <div class="appid-row">
+    <span class="appid-hint">搜不到？直接填 App ID：</span>
+    <input class="appid-input" id="appIdInput" type="text" placeholder="例如：746164" />
+    <a class="appid-help" href="https://www.taptap.cn" target="_blank">怎么找 ID ↗</a>
+  </div>
   <div class="error-box" id="errorBox"></div>
 </div>
 
@@ -155,7 +166,7 @@ header{padding:28px 48px;display:flex;align-items:center;gap:14px;border-bottom:
 // 后端地址：本地用 http://127.0.0.1:5000，部署后改为 Render 地址
 const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
   ? ""   // 本地：同源
-  : "https://taptap-analyzer-1.onrender.com";  // ← 部署后改为你的 Render URL
+  : "https://taptap-analyzer-1.onrender.com";
 
 const STEPS = ["搜索游戏","爬取差评","爬取好评","AI分析","完成"];
 let pollTimer = null;
@@ -193,7 +204,8 @@ function updateSteps(step) {
 
 async function startAnalyze() {
   const name = document.getElementById("gameInput").value.trim();
-  if (!name) { showErr("请输入游戏名称"); return; }
+  const appId = document.getElementById("appIdInput").value.trim();
+  if (!name && !appId) { showErr("请输入游戏名称，或在下方填写 App ID"); return; }
   hideErr();
   document.getElementById("analyzeBtn").disabled = true;
   document.getElementById("progressWrap").style.display = "block";
@@ -205,10 +217,12 @@ async function startAnalyze() {
   buildSteps();
 
   try {
+    const payload = { game_name: name };
+    if (appId) payload.app_id = appId;
     const resp = await fetch(`${API_BASE}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game_name: name })
+      body: JSON.stringify(payload)
     });
     const data = await resp.json();
     if (data.error) { showErr(data.error); document.getElementById("analyzeBtn").disabled = false; return; }
