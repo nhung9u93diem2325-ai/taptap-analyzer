@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TapTap 游戏评论分析</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+:root {
+  --bg: #0a0a0f;
+  --surface: #13131a;
+  --card: #1a1a24;
+  --border: #26263a;
+  --accent: #7c6dfa;
+  --accent2: #fa6d9a;
+  --good: #4ade80;
+  --bad: #f87171;
+  --text: #e8e8f0;
+  --muted: #6b6b88;
+  --radius: 14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;}
+
+header{padding:28px 48px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);}
+.logo{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.site-name{font-size:16px;font-weight:600;}
+.site-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+.hero{max-width:680px;margin:64px auto 0;padding:0 24px;text-align:center;}
+.hero h1{font-size:44px;font-weight:700;letter-spacing:-2px;line-height:1.1;background:linear-gradient(135deg,#fff 30%,var(--accent) 70%,var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.hero p{margin-top:16px;color:var(--muted);font-size:15px;line-height:1.8;}
+
+.search-wrap{max-width:580px;margin:40px auto 0;padding:0 24px;}
+.search-box{display:flex;gap:10px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:8px 8px 8px 20px;transition:border-color .2s;}
+.search-box:focus-within{border-color:var(--accent);}
+.search-input{flex:1;background:transparent;border:none;color:var(--text);font-size:15px;font-family:inherit;outline:none;}
+.search-input::placeholder{color:var(--muted);}
+.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:10px;padding:12px 24px;color:#fff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;transition:opacity .2s,transform .1s;}
+.btn:hover{opacity:.85;}
+.btn:active{transform:scale(.97);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+.error-box{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:10px;padding:14px 18px;color:var(--bad);font-size:13px;margin-top:14px;display:none;}
+
+/* Progress */
+.progress-wrap{max-width:580px;margin:28px auto 0;padding:0 24px;display:none;}
+.prog-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;}
+.steps{display:flex;align-items:center;margin-bottom:20px;}
+.step{display:flex;flex-direction:column;align-items:center;gap:5px;}
+.step-dot{width:30px;height:30px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--muted);transition:all .3s;}
+.step-dot.active{border-color:var(--accent);background:var(--accent);color:#fff;}
+.step-dot.done{border-color:var(--good);background:var(--good);color:#000;}
+.step-lbl{font-size:10px;color:var(--muted);text-align:center;white-space:nowrap;}
+.step-line{flex:1;height:2px;background:var(--border);transition:background .3s;}
+.step-line.done{background:var(--good);}
+.pbar-bg{background:var(--border);border-radius:99px;height:5px;overflow:hidden;}
+.pbar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;transition:width .5s ease;}
+.prog-msg{margin-top:12px;font-size:12px;color:var(--muted);}
+.counts{display:flex;gap:12px;margin-top:14px;}
+.cnt{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;}
+.cnt b{display:block;font-size:20px;font-weight:700;}
+.cnt.bad b{color:var(--bad);}
+.cnt.good b{color:var(--good);}
+
+/* Results */
+.result-wrap{max-width:900px;margin:44px auto 72px;padding:0 24px;display:none;}
+.result-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;gap:16px;flex-wrap:wrap;}
+.result-title{font-size:26px;font-weight:700;letter-spacing:-.5px;}
+.result-meta{font-size:13px;color:var(--muted);margin-top:5px;}
+.saved-badge{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:8px;color:var(--good);}
+
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;}
+@media(max-width:660px){.g2,.g3{grid-template-columns:1fr;}}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;}
+.card-title{font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;}
+
+.summary{font-size:14px;line-height:1.85;color:#c0c0d8;}
+
+.issue-list{display:flex;flex-direction:column;gap:12px;}
+.issue{display:flex;gap:12px;}
+.issue-num{min-width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+.num-bad{background:rgba(248,113,113,.14);color:var(--bad);}
+.num-good{background:rgba(74,222,128,.14);color:var(--good);}
+.issue-title{font-size:13px;font-weight:600;margin-bottom:3px;}
+.issue-desc{font-size:12px;color:var(--muted);line-height:1.55;}
+.issue-freq{font-size:11px;color:var(--accent);margin-top:3px;}
+
+.emo-bars{display:flex;flex-direction:column;gap:12px;}
+.emo-row{display:flex;align-items:center;gap:10px;}
+.emo-lbl{font-size:12px;width:30px;}
+.ebar-bg{flex:1;height:7px;background:var(--border);border-radius:99px;overflow:hidden;}
+.ebar-fill{height:100%;border-radius:99px;}
+.emo-pct{font-size:12px;font-weight:600;width:38px;text-align:right;}
+.kws{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px;}
+.kw{padding:3px 10px;border-radius:99px;font-size:11px;font-weight:500;}
+.kw-bad{background:rgba(248,113,113,.1);color:var(--bad);border:1px solid rgba(248,113,113,.2);}
+.kw-good{background:rgba(74,222,128,.1);color:var(--good);border:1px solid rgba(74,222,128,.2);}
+.emo-summary{margin-top:14px;font-size:13px;color:var(--muted);padding-top:14px;border-top:1px solid var(--border);line-height:1.6;}
+
+.sugg-list{display:flex;flex-direction:column;gap:10px;}
+.sugg{display:flex;gap:12px;background:var(--surface);border-radius:10px;padding:12px;}
+.pri{padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap;align-self:flex-start;}
+.pri-high{background:rgba(248,113,113,.12);color:var(--bad);}
+.pri-mid{background:rgba(250,204,21,.1);color:#facc15;}
+.pri-low{background:rgba(107,107,136,.12);color:var(--muted);}
+.sugg-area{font-size:13px;font-weight:600;margin-bottom:3px;}
+.sugg-action{font-size:12px;color:var(--muted);line-height:1.55;}
+
+.new-btn{display:block;width:100%;margin-top:24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;color:var(--muted);font-size:14px;font-family:inherit;cursor:pointer;transition:border-color .2s;}
+.new-btn:hover{border-color:var(--accent);color:var(--text);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🎮</div>
+  <div>
+    <div class="site-name">TapTap 评论分析</div>
+    <div class="site-sub">Powered by DeepSeek AI</div>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>读懂玩家的声音</h1>
+  <p>输入游戏名称，自动爬取 TapTap 全量差评与好评<br>AI 深度归纳核心问题、情绪分布与改进建议</p>
+</div>
+
+<div class="search-wrap">
+  <div class="search-box">
+    <input class="search-input" id="gameInput" type="text" placeholder="输入游戏名称，例如：原神、黑神话悟空" />
+    <button class="btn" id="analyzeBtn" onclick="startAnalyze()">开始分析</button>
+  </div>
+  <div class="error-box" id="errorBox"></div>
+</div>
+
+<div class="progress-wrap" id="progressWrap">
+  <div class="prog-card">
+    <div class="steps" id="stepsRow"></div>
+    <div class="pbar-bg"><div class="pbar-fill" id="pbarFill" style="width:0%"></div></div>
+    <div class="prog-msg" id="progMsg">准备中...</div>
+    <div class="counts">
+      <div class="cnt bad"><b id="badCount">0</b>条差评已采集</div>
+      <div class="cnt good"><b id="goodCount">0</b>条好评已采集</div>
+    </div>
+  </div>
+</div>
+
+<div class="result-wrap" id="resultWrap"></div>
+
+<script>
+// 后端地址：本地用 http://127.0.0.1:5000，部署后改为 Render 地址
+const API_BASE = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
+  ? ""   // 本地：同源
+  : "https://taptap-analyzer-1.onrender.com";  // ← 部署后改为你的 Render URL
+
+const STEPS = ["搜索游戏","爬取差评","爬取好评","AI分析","完成"];
+let pollTimer = null;
+let currentTaskId = null;
+
+function buildSteps() {
+  const row = document.getElementById("stepsRow");
+  row.innerHTML = "";
+  STEPS.forEach((s, i) => {
+    const item = document.createElement("div");
+    item.className = "step";
+    item.style.flex = "0 0 auto";
+    item.innerHTML = `<div class="step-dot" id="dot${i+1}">${i+1}</div><div class="step-lbl">${s}</div>`;
+    row.appendChild(item);
+    if (i < STEPS.length - 1) {
+      const line = document.createElement("div");
+      line.className = "step-line";
+      line.id = `line${i+1}`;
+      line.style.flex = "1";
+      row.appendChild(line);
+    }
+  });
+}
+
+function updateSteps(step) {
+  STEPS.forEach((_, i) => {
+    const dot = document.getElementById(`dot${i+1}`);
+    const line = document.getElementById(`line${i+1}`);
+    if (!dot) return;
+    if (i + 1 < step) { dot.className = "step-dot done"; dot.textContent = "✓"; if (line) line.className = "step-line done"; }
+    else if (i + 1 === step) { dot.className = "step-dot active"; dot.textContent = i+1; }
+    else { dot.className = "step-dot"; dot.textContent = i+1; if (line) line.className = "step-line"; }
+  });
+}
+
+async function startAnalyze() {
+  const name = document.getElementById("gameInput").value.trim();
+  if (!name) { showErr("请输入游戏名称"); return; }
+  hideErr();
+  document.getElementById("analyzeBtn").disabled = true;
+  document.getElementById("progressWrap").style.display = "block";
+  document.getElementById("resultWrap").style.display = "none";
+  document.getElementById("resultWrap").innerHTML = "";
+  document.getElementById("badCount").textContent = "0";
+  document.getElementById("goodCount").textContent = "0";
+  document.getElementById("pbarFill").style.width = "0%";
+  buildSteps();
+
+  try {
+    const resp = await fetch(`${API_BASE}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game_name: name })
+    });
+    const data = await resp.json();
+    if (data.error) { showErr(data.error); document.getElementById("analyzeBtn").disabled = false; return; }
+    currentTaskId = data.task_id;
+    pollTimer = setInterval(poll, 2500);
+  } catch(e) {
+    showErr("无法连接到后端服务，请确认服务已启动");
+    document.getElementById("analyzeBtn").disabled = false;
+  }
+}
+
+async function poll() {
+  try {
+    const resp = await fetch(`${API_BASE}/progress/${currentTaskId}`);
+    const s = await resp.json();
+    document.getElementById("progMsg").textContent = s.message || "";
+    document.getElementById("badCount").textContent = s.bad_count || 0;
+    document.getElementById("goodCount").textContent = s.good_count || 0;
+    document.getElementById("pbarFill").style.width = Math.round((s.step / s.total_steps) * 100) + "%";
+    updateSteps(s.step);
+    if (s.status === "done") { clearInterval(pollTimer); document.getElementById("analyzeBtn").disabled = false; renderResult(s.result); }
+    else if (s.status === "error") { clearInterval(pollTimer); document.getElementById("analyzeBtn").disabled = false; showErr(s.error || "发生未知错误"); }
+  } catch(e) { console.error(e); }
+}
+
+function renderResult(r) {
+  const a = r.analysis;
+  const priCls = p => p==="高"?"pri-high":p==="中"?"pri-mid":"pri-low";
+  const wrap = document.getElementById("resultWrap");
+  wrap.style.display = "block";
+  wrap.innerHTML = `
+    <div class="result-head">
+      <div>
+        <div class="result-title">《${r.game_name}》评论分析报告</div>
+        <div class="result-meta">差评 ${r.bad_count} 条 &nbsp;·&nbsp; 好评 ${r.good_count} 条 &nbsp;·&nbsp; App ID: ${r.app_id}</div>
+      </div>
+      <div class="saved-badge">✅ 分析完成</div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title"><span class="dot" style="background:var(--accent)"></span>整体概况</div>
+      <div class="summary">${a.summary||""}</div>
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--bad)"></span>差评核心问题 TOP5</div>
+        <div class="issue-list">${(a.bad_issues||[]).map(item=>`
+          <div class="issue">
+            <div class="issue-num num-bad">T${item.rank}</div>
+            <div>
+              <div class="issue-title">${item.issue}</div>
+              <div class="issue-desc">${item.desc}</div>
+              <div class="issue-freq">${item.frequency||""}</div>
+            </div>
+          </div>`).join("")}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--good)"></span>好评核心亮点 TOP5</div>
+        <div class="issue-list">${(a.good_highlights||[]).map(item=>`
+          <div class="issue">
+            <div class="issue-num num-good">★${item.rank}</div>
+            <div>
+              <div class="issue-title">${item.highlight}</div>
+              <div class="issue-desc">${item.desc}</div>
+            </div>
+          </div>`).join("")}
+        </div>
+      </div>
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:#facc15"></span>用户情绪分析</div>
+        <div class="emo-bars">
+          <div class="emo-row">
+            <span class="emo-lbl" style="color:var(--bad)">差评</span>
+            <div class="ebar-bg"><div class="ebar-fill" style="width:${a.emotion?.negative_ratio||0}%;background:var(--bad)"></div></div>
+            <span class="emo-pct" style="color:var(--bad)">${a.emotion?.negative_ratio||0}%</span>
+          </div>
+          <div class="emo-row">
+            <span class="emo-lbl" style="color:var(--good)">好评</span>
+            <div class="ebar-bg"><div class="ebar-fill" style="width:${a.emotion?.positive_ratio||0}%;background:var(--good)"></div></div>
+            <span class="emo-pct" style="color:var(--good)">${a.emotion?.positive_ratio||0}%</span>
+          </div>
+        </div>
+        <div class="kws">
+          ${(a.emotion?.negative_keywords||[]).map(k=>`<span class="kw kw-bad">${k}</span>`).join("")}
+          ${(a.emotion?.positive_keywords||[]).map(k=>`<span class="kw kw-good">${k}</span>`).join("")}
+        </div>
+        <div class="emo-summary">${a.emotion?.overall_sentiment||""}</div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--accent)"></span>改进建议</div>
+        <div class="sugg-list">${(a.suggestions||[]).map(s=>`
+          <div class="sugg">
+            <span class="pri ${priCls(s.priority)}">${s.priority}</span>
+            <div>
+              <div class="sugg-area">${s.area}</div>
+              <div class="sugg-action">${s.action}</div>
+            </div>
+          </div>`).join("")}
+        </div>
+      </div>
+    </div>
+
+    <button class="new-btn" onclick="resetPage()">🔄 分析另一款游戏</button>
+  `;
+  wrap.scrollIntoView({ behavior: "smooth" });
+}
+
+function resetPage() {
+  document.getElementById("resultWrap").style.display = "none";
+  document.getElementById("progressWrap").style.display = "none";
+  document.getElementById("gameInput").value = "";
+  document.getElementById("gameInput").focus();
+}
+
+function showErr(msg) { const e = document.getElementById("errorBox"); e.textContent = msg; e.style.display = "block"; }
+function hideErr() { document.getElementById("errorBox").style.display = "none"; }
+</script>
+</body>
+</html>
