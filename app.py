@@ -16,9 +16,9 @@ from openai import OpenAI
 app = Flask(__name__)
 CORS(app)
 
-# =========================
-# 配置参数
-# =========================
+# =====================
+# 配置
+# =====================
 BAD_TARGET = 100
 GOOD_TARGET = 120
 MAX_SCROLL = 35
@@ -28,43 +28,80 @@ tasks = {}
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
-# =========================
-# 首页（加载前端）
-# =========================
+# =====================
+# 首页（前端）
+# =====================
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
-# =========================
+# =====================
+# 防呆API（解决400）
+# =====================
+@app.route("/analyze", methods=["POST"])
+def analyze_api():
+    data = request.get_json(force=True, silent=True) or {}
+
+    game = (data.get("game_name") or "").strip()
+
+    if not game:
+        return jsonify({
+            "error": "missing game_name",
+            "hint": "frontend must send JSON: {game_name: 'xxx'}"
+        }), 400
+
+    task_id = str(uuid.uuid4())
+
+    tasks[task_id] = {
+        "status": "running",
+        "message": "queued"
+    }
+
+    thread = threading.Thread(target=run_task, args=(task_id, game))
+    thread.start()
+
+    return jsonify({"task_id": task_id})
+
+
+# =====================
+# 进度查询
+# =====================
+@app.route("/progress/<task_id>")
+def progress(task_id):
+    return jsonify(tasks.get(task_id, {"error": "not found"}))
+
+
+# =====================
 # 搜索游戏
-# =========================
+# =====================
 def search_game(page, game_name):
-    if re.match(r"^\d+$", game_name.strip()):
-        return game_name.strip(), f"App#{game_name.strip()}"
+    if re.match(r"^\d+$", game_name):
+        return game_name, f"App#{game_name}"
 
     url = f"https://www.taptap.cn/search?q={urllib.parse.quote(game_name)}&type=app"
     page.goto(url, wait_until="networkidle")
     page.wait_for_timeout(2500)
 
     links = page.query_selector_all("a[href*='/app/']")
+
     for l in links:
         href = l.get_attribute("href") or ""
         m = re.search(r"/app/(\d+)", href)
         if m:
-            return m.group(1), (l.inner_text() or game_name)
+            return m.group(1), game_name
 
     return None, None
 
 
-# =========================
-# 提取评论（稳定版）
-# =========================
+# =====================
+# 抓评论（稳定版）
+# =====================
 def extract_reviews(page):
     js = """
     () => {
         const nodes = document.querySelectorAll('a[href*="/review/"]');
-        const results = [];
+        const out = [];
         const seen = new Set();
 
         nodes.forEach(n => {
@@ -79,14 +116,10 @@ def extract_reviews(page):
             const text = (n.innerText || '').trim();
             if (!text) return;
 
-            results.push({
-                id,
-                content: text,
-                url: 'https://www.taptap.cn/review/' + id
-            });
+            out.push({ id, content: text });
         });
 
-        return results;
+        return out;
     }
     """
     try:
@@ -95,11 +128,12 @@ def extract_reviews(page):
         return []
 
 
-# =========================
-# 爬取评论（关键优化版）
-# =========================
+# =====================
+# 爬虫核心
+# =====================
 def crawl_reviews(page, app_id, label, target):
-    url = f"https://www.taptap.cn/app/{app_id}/review?os=android&mapping={label}&label=0"
+    url = f"https://www.taptap.cn/app/{app_id}/review?mapping={label}&label=0"
+
     page.goto(url, wait_until="networkidle")
     page.wait_for_timeout(3000)
 
@@ -120,13 +154,11 @@ def crawl_reviews(page, app_id, label, target):
 
         after = len(reviews)
 
-        print(f"[{label}] scroll={i} total={after}")
+        print(f"[{label}] {i} -> {after}")
 
-        # 达标直接停止
         if len(reviews) >= target:
             break
 
-        # 无新增判断
         if after == before:
             no_change += 1
         else:
@@ -138,9 +170,9 @@ def crawl_reviews(page, app_id, label, target):
     return list(reviews.values())
 
 
-# =========================
-# DeepSeek分析
-# =========================
+# =====================
+# AI分析
+# =====================
 def analyze(bad, good, name):
     client = OpenAI(
         api_key=DEEPSEEK_API_KEY,
@@ -148,19 +180,13 @@ def analyze(bad, good, name):
     )
 
     prompt = f"""
-你是游戏分析师，请分析游戏《{name}》。
+分析游戏：《{name}》
 
-差评数量：{len(bad)}
-好评数量：{len(good)}
+差评：{len(bad)}
+好评：{len(good)}
 
-请输出JSON：
-- summary
-- bad_issues（5条）
-- good_highlights（5条）
-- emotion
-- suggestions
-
-只输出JSON，不要多余文字
+输出JSON：
+summary / issues / highlights / suggestions
 """
 
     res = client.chat.completions.create(
@@ -172,87 +198,61 @@ def analyze(bad, good, name):
     return json.loads(res.choices[0].message.content)
 
 
-# =========================
+# =====================
 # 后台任务
-# =========================
+# =====================
 def run_task(task_id, game_name):
     tasks[task_id] = {"status": "running", "message": "starting"}
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
 
-        page = browser.new_page()
+            page = browser.new_page()
 
-        try:
-            tasks[task_id]["message"] = "searching game"
+            tasks[task_id]["message"] = "search game"
 
             app_id, name = search_game(page, game_name)
 
             if not app_id:
                 raise Exception("Game not found")
 
-            tasks[task_id]["message"] = "crawling bad reviews"
+            tasks[task_id]["message"] = "crawl bad"
+
             bad = crawl_reviews(page, app_id, "差评", BAD_TARGET)
 
-            tasks[task_id]["message"] = "crawling good reviews"
+            tasks[task_id]["message"] = "crawl good"
+
             good = crawl_reviews(page, app_id, "好评", GOOD_TARGET)
 
-            tasks[task_id]["message"] = "analyzing AI"
+            tasks[task_id]["message"] = "analyze"
+
             result = analyze(bad, good, name)
 
             tasks[task_id] = {
                 "status": "done",
                 "game": name,
                 "app_id": app_id,
-                "bad_count": len(bad),
-                "good_count": len(good),
+                "bad": len(bad),
+                "good": len(good),
                 "analysis": result
             }
 
-        except Exception as e:
-            tasks[task_id] = {
-                "status": "error",
-                "message": str(e)
-            }
-
-        finally:
             browser.close()
 
-
-# =========================
-# API接口
-# =========================
-@app.route("/analyze", methods=["POST"])
-def analyze_api():
-    data = request.json or {}
-    game = data.get("game_name", "").strip()
-
-    if not game:
-        return jsonify({"error": "missing game_name"}), 400
-
-    task_id = str(uuid.uuid4())
-
-    t = threading.Thread(
-        target=run_task,
-        args=(task_id, game),
-        daemon=True
-    )
-    t.start()
-
-    return jsonify({"task_id": task_id})
+    except Exception as e:
+        tasks[task_id] = {
+            "status": "error",
+            "message": str(e)
+        }
 
 
-@app.route("/progress/<task_id>")
-def progress(task_id):
-    return jsonify(tasks.get(task_id, {"error": "not found"}))
-
-
-# =========================
-# 启动入口（Render必须）
-# =========================
+# =====================
+# main
+# =====================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
