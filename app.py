@@ -2,7 +2,6 @@ from gevent import monkey
 monkey.patch_all()
 
 import os
-import time
 import re
 import json
 import uuid
@@ -18,16 +17,24 @@ app = Flask(__name__)
 CORS(app)
 
 # =========================
-# 配置（重点优化）
+# 配置参数
 # =========================
-BAD_TARGET = 100     # 差评目标
-GOOD_TARGET = 120    # 好评目标
-MAX_SCROLL = 40
+BAD_TARGET = 100
+GOOD_TARGET = 120
+MAX_SCROLL = 35
 SCROLL_PAUSE = 2.5
 
 tasks = {}
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+# =========================
+# 首页（加载前端）
+# =========================
+@app.route("/")
+def home():
+    return render_template("index.html")
+
 
 # =========================
 # 搜索游戏
@@ -37,21 +44,21 @@ def search_game(page, game_name):
         return game_name.strip(), f"App#{game_name.strip()}"
 
     url = f"https://www.taptap.cn/search?q={urllib.parse.quote(game_name)}&type=app"
-    page.goto(url, wait_until="networkidle", timeout=30000)
-    page.wait_for_timeout(2000)
+    page.goto(url, wait_until="networkidle")
+    page.wait_for_timeout(2500)
 
     links = page.query_selector_all("a[href*='/app/']")
-    for link in links:
-        href = link.get_attribute("href") or ""
+    for l in links:
+        href = l.get_attribute("href") or ""
         m = re.search(r"/app/(\d+)", href)
         if m:
-            return m.group(1), (link.inner_text() or game_name)
+            return m.group(1), (l.inner_text() or game_name)
 
     return None, None
 
 
 # =========================
-# 更稳定评论抓取（去DOM diff）
+# 提取评论（稳定版）
 # =========================
 def extract_reviews(page):
     js = """
@@ -73,7 +80,7 @@ def extract_reviews(page):
             if (!text) return;
 
             results.push({
-                id: id,
+                id,
                 content: text,
                 url: 'https://www.taptap.cn/review/' + id
             });
@@ -89,11 +96,11 @@ def extract_reviews(page):
 
 
 # =========================
-# 爬取核心（已修复卡死）
+# 爬取评论（关键优化版）
 # =========================
 def crawl_reviews(page, app_id, label, target):
     url = f"https://www.taptap.cn/app/{app_id}/review?os=android&mapping={label}&label=0"
-    page.goto(url, wait_until="networkidle", timeout=60000)
+    page.goto(url, wait_until="networkidle")
     page.wait_for_timeout(3000)
 
     reviews = {}
@@ -107,17 +114,19 @@ def crawl_reviews(page, app_id, label, target):
         items = extract_reviews(page)
 
         before = len(reviews)
+
         for r in items:
             reviews[r["id"]] = r
+
         after = len(reviews)
 
         print(f"[{label}] scroll={i} total={after}")
 
-        # ✅ 达到目标直接停止（核心优化）
+        # 达标直接停止
         if len(reviews) >= target:
             break
 
-        # ❗无新增检测
+        # 无新增判断
         if after == before:
             no_change += 1
         else:
@@ -130,7 +139,7 @@ def crawl_reviews(page, app_id, label, target):
 
 
 # =========================
-# AI分析
+# DeepSeek分析
 # =========================
 def analyze(bad, good, name):
     client = OpenAI(
@@ -139,24 +148,25 @@ def analyze(bad, good, name):
     )
 
     prompt = f"""
-你是游戏分析师，请分析《{name}》。
+你是游戏分析师，请分析游戏《{name}》。
 
-差评：{len(bad)}条
-好评：{len(good)}条
+差评数量：{len(bad)}
+好评数量：{len(good)}
 
-输出JSON：
+请输出JSON：
 - summary
-- bad_issues(5)
-- good_highlights(5)
+- bad_issues（5条）
+- good_highlights（5条）
 - emotion
 - suggestions
-只输出JSON
+
+只输出JSON，不要多余文字
 """
 
     res = client.chat.completions.create(
         model="deepseek-chat",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
+        temperature=0.3
     )
 
     return json.loads(res.choices[0].message.content)
@@ -180,27 +190,25 @@ def run_task(task_id, game_name):
             tasks[task_id]["message"] = "searching game"
 
             app_id, name = search_game(page, game_name)
+
             if not app_id:
                 raise Exception("Game not found")
 
-            tasks[task_id]["message"] = "crawl bad reviews"
-
+            tasks[task_id]["message"] = "crawling bad reviews"
             bad = crawl_reviews(page, app_id, "差评", BAD_TARGET)
 
-            tasks[task_id]["message"] = "crawl good reviews"
-
+            tasks[task_id]["message"] = "crawling good reviews"
             good = crawl_reviews(page, app_id, "好评", GOOD_TARGET)
 
-            tasks[task_id]["message"] = "analyzing"
-
+            tasks[task_id]["message"] = "analyzing AI"
             result = analyze(bad, good, name)
 
             tasks[task_id] = {
                 "status": "done",
                 "game": name,
                 "app_id": app_id,
-                "bad": len(bad),
-                "good": len(good),
+                "bad_count": len(bad),
+                "good_count": len(good),
                 "analysis": result
             }
 
@@ -215,13 +223,8 @@ def run_task(task_id, game_name):
 
 
 # =========================
-# API
+# API接口
 # =========================
-@app.route("/")
-def home():
-    return "OK - TapTap Scraper Running"
-
-
 @app.route("/analyze", methods=["POST"])
 def analyze_api():
     data = request.json or {}
@@ -248,7 +251,7 @@ def progress(task_id):
 
 
 # =========================
-# main
+# 启动入口（Render必须）
 # =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
